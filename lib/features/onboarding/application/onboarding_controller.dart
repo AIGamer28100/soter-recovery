@@ -34,9 +34,11 @@ class OnboardingState {
 
 /// Drives the role-choice / patient-details / caregiver-lookup flow.
 /// Mirrors `RoleOnboarding.tsx`'s state machine faithfully: patient path
-/// requires a name+phone emergency contact and offers an optional caregiver
-/// email nomination; caregiver path does no typing at all — it resolves who
-/// nominated the signed-in Google account via `findLinkedPatient`.
+/// requires an emergency contact chosen from the device's contact list (no
+/// READ_CONTACTS — see `platform/contacts/contact_picker_service.dart`) and
+/// offers an optional caregiver email nomination; caregiver path does no typing
+/// at all — it resolves who nominated the signed-in Google account via
+/// `findLinkedPatient`.
 class OnboardingController extends Notifier<OnboardingState> {
   @override
   OnboardingState build() => const OnboardingState();
@@ -50,8 +52,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   }
 
   Future<void> submitPatient({
-    required String contactName,
-    required String contactPhone,
+    required EmergencyContact contact,
     String? caregiverEmail,
   }) async {
     final user = ref.read(authStateChangesProvider).value;
@@ -62,7 +63,7 @@ class OnboardingController extends Notifier<OnboardingState> {
       await ref.read(profileRepositoryProvider).createPatientProfile(
             uid: user.uid,
             email: user.email,
-            emergencyContact: EmergencyContact(name: contactName, phone: contactPhone),
+            emergencyContact: contact,
             displayName: user.displayName,
             photoURL: user.photoUrl,
             caregiverEmail: caregiverEmail,
