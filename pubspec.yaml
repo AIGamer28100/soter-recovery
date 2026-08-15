@@ -41,6 +41,12 @@ dependencies:
   google_sign_in: ^7.2.0
   record: ^6.2.1
   permission_handler: ^12.0.3
+  # Emergency-contact picker (Task #19). Uses Android's ACTION_PICK intent —
+  # deliberately NOT flutter_contacts, because this needs no READ_CONTACTS
+  # permission: the system picker returns one contact URI with a temporary
+  # read grant. Same permission-minimising rationale as share_plus in
+  # DESIGN.md's export section.
+  flutter_native_contact_picker: ^0.0.12
   camera: ^0.12.0+2
   camera_platform_interface: ^2.13.1
   url_launcher: ^6.3.2

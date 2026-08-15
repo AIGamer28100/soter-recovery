@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/data/auth_repository.dart';
+import '../../profile/domain/user_profile.dart';
+import '../../../platform/contacts/contact_picker_service.dart';
+import '../../../platform/contacts/contact_mapping.dart';
+import '../../../core/errors/app_exception.dart';
 import '../application/onboarding_controller.dart';
+import 'patient_details_form.dart';
 
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
@@ -15,6 +20,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _caregiverEmailController = TextEditingController();
+  EmergencyContact? _pickedContact;
+  String? _pickerError;
+  bool _manualEntryVisible = false;
+  bool _picking = false;
 
   @override
   void dispose() {
@@ -22,6 +31,35 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _phoneController.dispose();
     _caregiverEmailController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickContact() async {
+    setState(() {
+      _picking = true;
+      _pickerError = null;
+    });
+    try {
+      final contact =
+          await ref.read(contactPickerServiceProvider).pickEmergencyContact();
+      if (!mounted) return;
+      setState(() {
+        _picking = false;
+        if (contact != null) _pickedContact = contact; // null == cancelled
+      });
+    } on ContactHasNoPhoneNumber catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _picking = false;
+        _pickerError = e.message;
+      });
+    } on AppException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _picking = false;
+        _pickerError = e.message;
+        _manualEntryVisible = true;
+      });
+    }
   }
 
   @override
@@ -46,18 +84,29 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         onPatient: controller.chooseRoleGoToPatientDetails,
                         onCaregiver: controller.chooseCaregiverRole,
                       ),
-                    OnboardingStep.patientDetails => _PatientDetails(
+                    OnboardingStep.patientDetails => PatientDetailsForm(
                         busy: state.isSubmitting,
+                        picking: _picking,
+                        pickedContact: _pickedContact,
+                        pickerErrorMessage: _pickerError,
+                        manualEntryVisible: _manualEntryVisible,
                         nameController: _nameController,
                         phoneController: _phoneController,
                         caregiverEmailController: _caregiverEmailController,
-                        onSubmit: () => controller.submitPatient(
-                          contactName: _nameController.text.trim(),
-                          contactPhone: _phoneController.text.trim(),
-                          caregiverEmail: _caregiverEmailController.text.trim().isEmpty
-                              ? null
-                              : _caregiverEmailController.text.trim(),
-                        ),
+                        onPickContact: _pickContact,
+                        onSubmit: () {
+                          final contact = _pickedContact ??
+                              EmergencyContact(
+                                name: _nameController.text.trim(),
+                                phone: normalizePhoneNumber(_phoneController.text.trim()),
+                              );
+                          controller.submitPatient(
+                            contact: contact,
+                            caregiverEmail: _caregiverEmailController.text.trim().isEmpty
+                                ? null
+                                : _caregiverEmailController.text.trim(),
+                          );
+                        },
                       ),
                     OnboardingStep.caregiverNotFound => _CaregiverNotFound(
                         email: signedInEmail,
@@ -125,91 +174,6 @@ class _ChooseRole extends StatelessWidget {
               : const Text("I'm a caregiver"),
         ),
       ],
-    );
-  }
-}
-
-class _PatientDetails extends StatelessWidget {
-  const _PatientDetails({
-    required this.busy,
-    required this.nameController,
-    required this.phoneController,
-    required this.caregiverEmailController,
-    required this.onSubmit,
-  });
-
-  final bool busy;
-  final TextEditingController nameController;
-  final TextEditingController phoneController;
-  final TextEditingController caregiverEmailController;
-  final VoidCallback onSubmit;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([nameController, phoneController]),
-      builder: (context, _) {
-        final canSubmit =
-            !busy && nameController.text.trim().isNotEmpty && phoneController.text.trim().isNotEmpty;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Who should we reach?',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "Add one person you'd want called on a hard night. They'll be one tap "
-              "away inside the app, and if you nominate them by email, they'll be "
-              "able to sign in as your caregiver.",
-              textAlign: TextAlign.center,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 24),
-            TextField(
-              controller: nameController,
-              textAlign: TextAlign.center,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(hintText: "Their name"),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: phoneController,
-              textAlign: TextAlign.center,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(hintText: "Their phone number"),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: caregiverEmailController,
-              textAlign: TextAlign.center,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(hintText: "Their Google email (optional)"),
-            ),
-            const SizedBox(height: 20),
-            FilledButton(
-              onPressed: canSubmit ? onSubmit : null,
-              child: Text(busy ? 'Saving…' : 'Save and continue'),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              "A contact is required — on a hard night you shouldn't have to go "
-              "looking for a number. Add their Google email too and they can sign "
-              "in as your caregiver to see your patterns and get alerts. Only you "
-              "can grant that, and only to an address you enter here.",
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-          ],
-        );
-      },
     );
   }
 }
